@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Читалка с переводом</title>
+  <meta name="description" content="Вставь ссылку на английскую статью и нажимай на слова, чтобы увидеть перевод на русский.">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="top">
+    <div class="wrap">
+      <div class="brand">
+        <h1>Читалка</h1>
+        <span class="badge">EN → RU</span>
+      </div>
+
+      <div class="tabs" role="tablist" aria-label="Источник текста">
+        <button type="button" role="tab" id="tab-url" aria-selected="true">Ссылка</button>
+        <button type="button" role="tab" id="tab-text" aria-selected="false">Свой текст</button>
+      </div>
+
+      <form id="url-form" class="row" autocomplete="off">
+        <input id="url-input" type="text" inputmode="url" spellcheck="false"
+               placeholder="Вставь ссылку на статью: https://…" aria-label="Ссылка на статью" required>
+        <button type="submit" class="primary">Открыть</button>
+      </form>
+
+      <form id="text-form" class="stack" hidden>
+        <textarea id="text-input" rows="6" placeholder="Вставь английский текст сюда…" aria-label="Текст"></textarea>
+        <button type="submit" class="primary">Читать</button>
+      </form>
+
+      <p id="status" role="status" hidden></p>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <section id="empty" class="empty">
+      <h2>Как это работает</h2>
+      <ol>
+        <li>Вставь ссылку на статью на английском.</li>
+        <li>Нажми на любое слово в тексте.</li>
+        <li>Над словом появится перевод на русский.</li>
+      </ol>
+      <p class="muted">Если сайт не отдаёт статью, переключись на «Свой текст» и вставь её вручную.</p>
+    </section>
+
+    <article id="article" hidden>
+      <header class="article-head">
+        <h2 id="article-title"></h2>
+        <p id="article-meta" class="muted"></p>
+      </header>
+      <div id="article-body" class="prose"></div>
+    </article>
+  </main>
+
+  <div id="popup" role="dialog" aria-live="polite" hidden></div>
+
+  <noscript><p class="wrap">Для работы сайта нужен JavaScript.</p></noscript>
+
+  <script src="vendor/Readability.js"></script>
+  <script src="vendor/purify.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
