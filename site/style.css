@@ -33,6 +33,8 @@
 
 * { box-sizing: border-box; }
 
+[hidden] { display: none !important; }
+
 html { -webkit-text-size-adjust: 100%; }
 
 body {
@@ -111,7 +113,6 @@ body {
 
 .row { display: flex; gap: 8px; }
 .stack { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
-form[hidden] { display: none; }
 
 input[type="text"],
 textarea {
@@ -157,54 +158,126 @@ button.primary:disabled { opacity: 0.6; cursor: progress; }
 
 #status.error { color: var(--error); }
 
-/* ---------- Recent translations ---------- */
+/* ---------- File drop zone ---------- */
 
-.history {
+.drop {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 26px 16px;
+  text-align: center;
+  border: 2px dashed var(--line);
+  border-radius: 12px;
+  background: var(--bg);
+  cursor: pointer;
+  transition: border-color 0.12s, background 0.12s;
+}
+
+.drop:hover,
+.drop.over {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.drop:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
+.drop-title { font-weight: 600; }
+
+.drop input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  overflow: hidden;
+}
+
+/* ---------- Recent articles and texts ---------- */
+
+.docs {
   margin-top: 12px;
   border: 1px solid var(--line);
   border-radius: 10px;
   background: var(--bg);
 }
 
-.history summary {
+.docs summary {
   cursor: pointer;
   padding: 9px 13px;
   font-size: 0.92rem;
   color: var(--muted);
 }
 
-.history[open] summary { border-bottom: 1px solid var(--line); }
+.docs[open] summary { border-bottom: 1px solid var(--line); }
 
-.history ul {
+.docs ul {
   list-style: none;
   margin: 0;
-  padding: 4px 13px;
-  max-height: 240px;
+  padding: 0;
+  max-height: 320px;
   overflow-y: auto;
 }
 
-.history li {
+.docs li {
   display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 7px 0;
+  align-items: stretch;
   border-bottom: 1px solid var(--line);
-  font-size: 0.95rem;
 }
 
-.history li:last-child { border-bottom: 0; }
-.history li strong { font-weight: 600; }
-.history li span { color: var(--muted); text-align: right; }
+.docs li:last-child { border-bottom: 0; }
 
-.history .link {
+.doc-open {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 13px;
+  font: inherit;
+  text-align: left;
+  color: var(--text);
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
+.doc-open:hover { background: var(--accent-soft); }
+
+.doc-title {
+  font-weight: 600;
+  font-size: 0.95rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.doc-meta { font-size: 0.8rem; color: var(--muted); }
+
+.doc-del {
+  flex: none;
+  width: 44px;
+  font: inherit;
+  font-size: 1.2rem;
+  color: var(--muted);
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
+.doc-del:hover { color: var(--error); }
+
+.docs .link {
   font: inherit;
   font-size: 0.85rem;
-  margin: 0 13px 10px;
-  padding: 0;
+  margin: 0;
+  padding: 10px 13px;
   border: 0;
+  border-top: 1px solid var(--line);
   background: none;
   color: var(--accent);
   cursor: pointer;
+  width: 100%;
+  text-align: left;
 }
 
 /* ---------- Empty state ---------- */

@@ -18,6 +18,7 @@
       <div class="tabs" role="tablist" aria-label="Источник текста">
         <button type="button" role="tab" id="tab-url" aria-selected="true">Ссылка</button>
         <button type="button" role="tab" id="tab-text" aria-selected="false">Свой текст</button>
+        <button type="button" role="tab" id="tab-file" aria-selected="false">Файл</button>
       </div>
 
       <form id="url-form" class="row" autocomplete="off">
@@ -31,12 +32,21 @@
         <button type="submit" class="primary">Читать</button>
       </form>
 
+      <div id="file-form" hidden>
+        <label id="drop" class="drop" for="file-input">
+          <input id="file-input" type="file"
+                 accept=".pdf,.docx,.txt,.md,.markdown,application/pdf,text/plain">
+          <span class="drop-title">Выбери файл или перетащи его сюда</span>
+          <span class="muted">PDF, DOCX, TXT, MD</span>
+        </label>
+      </div>
+
       <p id="status" role="status" hidden></p>
 
-      <details id="history" class="history" hidden>
-        <summary>Недавние переводы <span id="history-count"></span></summary>
-        <ul id="history-list"></ul>
-        <button type="button" id="history-clear" class="link">Очистить</button>
+      <details id="docs" class="docs" hidden>
+        <summary>Недавние статьи и тексты <span id="docs-count"></span></summary>
+        <ul id="docs-list"></ul>
+        <button type="button" id="docs-clear" class="link">Очистить историю</button>
       </details>
     </div>
   </header>
@@ -49,6 +59,7 @@
         <li>Нажми на любое слово в тексте.</li>
         <li>Над словом появится перевод на русский.</li>
       </ol>
+      <p class="muted">Можно открыть и свой материал: вставить текст или загрузить файл PDF, DOCX, TXT, MD. Открытые статьи и тексты запоминаются в этом браузере.</p>
       <p class="muted">Если сайт не отдаёт статью, переключись на «Свой текст» и вставь её вручную.</p>
     </section>
 
@@ -67,6 +78,7 @@
 
   <script src="vendor/Readability.js"></script>
   <script src="vendor/purify.min.js"></script>
+  <script src="pdf-text.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
