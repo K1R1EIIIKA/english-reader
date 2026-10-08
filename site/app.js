@@ -19,6 +19,10 @@
     meta: $('#article-meta'),
     body: $('#article-body'),
     popup: $('#popup'),
+    recent: $('#history'),
+    recentCount: $('#history-count'),
+    recentList: $('#history-list'),
+    recentClear: $('#history-clear'),
   };
 
   /* ------------------------------------------------------------------ */
@@ -291,6 +295,59 @@
   }
 
   /* ------------------------------------------------------------------ */
+  /* Недавние переводы                                                   */
+  /* ------------------------------------------------------------------ */
+
+  const RECENT_KEY = 'reader-recent-v1';
+  const RECENT_MAX = 50;
+  let recent = [];
+
+  try {
+    const stored = JSON.parse(localStorage.getItem(RECENT_KEY) || '[]');
+    if (Array.isArray(stored)) {
+      recent = stored
+        .filter((item) => item && typeof item.word === 'string' && typeof item.main === 'string')
+        .slice(0, RECENT_MAX);
+    }
+  } catch { /* история необязательна */ }
+
+  function renderRecent() {
+    els.recentList.textContent = '';
+    for (const item of recent) {
+      const li = document.createElement('li');
+      const word = document.createElement('strong');
+      word.textContent = item.word;
+      const tr = document.createElement('span');
+      tr.textContent = item.main;
+      li.append(word, tr);
+      els.recentList.append(li);
+    }
+    els.recentCount.textContent = recent.length ? '(' + recent.length + ')' : '';
+    els.recent.hidden = recent.length === 0;
+  }
+
+  function saveRecent() {
+    try {
+      localStorage.setItem(RECENT_KEY, JSON.stringify(recent));
+    } catch { /* история необязательна */ }
+  }
+
+  function addRecent(word, main) {
+    const key = word.toLowerCase();
+    recent = [{ word, main }, ...recent.filter((item) => item.word.toLowerCase() !== key)].slice(0, RECENT_MAX);
+    saveRecent();
+    renderRecent();
+  }
+
+  els.recentClear.addEventListener('click', () => {
+    recent = [];
+    saveRecent();
+    renderRecent();
+  });
+
+  renderRecent();
+
+  /* ------------------------------------------------------------------ */
   /* Всплывающее окно с переводом                                        */
   /* ------------------------------------------------------------------ */
 
@@ -385,6 +442,7 @@
       const result = await translate(word);
       if (mine !== token) return;
       renderPopup(word, 'done', result);
+      addRecent(word, result.main);
     } catch {
       if (mine !== token) return;
       renderPopup(word, 'error');

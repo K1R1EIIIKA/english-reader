@@ -157,6 +157,56 @@ button.primary:disabled { opacity: 0.6; cursor: progress; }
 
 #status.error { color: var(--error); }
 
+/* ---------- Recent translations ---------- */
+
+.history {
+  margin-top: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--bg);
+}
+
+.history summary {
+  cursor: pointer;
+  padding: 9px 13px;
+  font-size: 0.92rem;
+  color: var(--muted);
+}
+
+.history[open] summary { border-bottom: 1px solid var(--line); }
+
+.history ul {
+  list-style: none;
+  margin: 0;
+  padding: 4px 13px;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.history li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 0.95rem;
+}
+
+.history li:last-child { border-bottom: 0; }
+.history li strong { font-weight: 600; }
+.history li span { color: var(--muted); text-align: right; }
+
+.history .link {
+  font: inherit;
+  font-size: 0.85rem;
+  margin: 0 13px 10px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  cursor: pointer;
+}
+
 /* ---------- Empty state ---------- */
 
 .empty { padding: 36px 0 60px; }

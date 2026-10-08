@@ -7,7 +7,7 @@
 - Статический сайт без сборки: `site/index.html`, `site/style.css`, `site/app.js`.
 - Статья скачивается через публичные CORS-прокси (allorigins, corsproxy.io, r.jina.ai) и очищается библиотекой [Readability](https://github.com/mozilla/readability). Копия лежит в `site/vendor/`.
 - Текст чистится через [DOMPurify](https://github.com/cure53/DOMPurify), каждое слово оборачивается в `<span>`.
-- Перевод берётся из Google Translate (неофициальный endpoint), запасной вариант: MyMemory. Переводы кэшируются в `localStorage`.
+- Перевод берётся из Google Translate (неофициальный endpoint), запасной вариант: MyMemory. Переводы кэшируются в `localStorage`, а последние 50 слов показываются в панели «Недавние переводы» (хранятся в браузере, есть кнопка «Очистить»).
 - Если сайт не отдаёт статью, можно вставить текст вручную во вкладке «Свой текст».
 - Ссылкой можно поделиться: `https://<user>.github.io/<repo>/?url=https://example.com/article`.
 
