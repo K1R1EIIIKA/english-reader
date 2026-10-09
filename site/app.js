@@ -29,6 +29,7 @@
     settingsBtn: $('#settings-btn'),
     settings: $('#settings'),
     langSelect: $('#lang-select'),
+    prefetchToggle: $('#prefetch-toggle'),
   };
 
   /* ------------------------------------------------------------------ */
@@ -646,12 +647,21 @@
     particle: 'част.', numeral: 'числ.', abbreviation: 'сокр.', prefix: 'приставка',
   };
 
+  // Если сервис начал отвечать отказом (лимит запросов), на минуту перестаём переводить заранее
+  let prefetchPausedUntil = 0;
+  function noteBackoff(status) {
+    if (status === 429 || status === 403) prefetchPausedUntil = Date.now() + 60000;
+  }
+
   async function translateGoogle(word, lang) {
     const url =
       'https://translate.googleapis.com/translate_a/single?client=gtx' +
       `&sl=${SRC_LANG}&tl=${lang}&dt=t&dt=bd&q=${encodeURIComponent(word)}`;
     const res = await fetchTimeout(url, 8000);
-    if (!res.ok) throw new Error('google ' + res.status);
+    if (!res.ok) {
+      noteBackoff(res.status);
+      throw new Error('google ' + res.status);
+    }
     const data = await res.json();
 
     const main = (data[0] || []).map((part) => part[0]).join('').trim();
@@ -673,19 +683,31 @@
     return out.trim();
   }
 
-  async function translate(word) {
+  // Запрос, который уже летит, переиспользуется: предзагрузка и клик не дублируют друг друга
+  const pendingWords = new Map();
+  const cachedWord = (word) => cache.get(dstLang + ':' + word);
+
+  function translate(word) {
     const lang = dstLang;
     const key = lang + ':' + word;
-    if (cache.has(key)) return cache.get(key);
-    let result;
-    try {
-      result = await translateGoogle(word, lang);
-    } catch {
-      result = { main: await myMemoryText(word, lang), alts: [] };
-    }
-    cache.set(key, result);
-    saveCache();
-    return result;
+    if (cache.has(key)) return Promise.resolve(cache.get(key));
+    if (pendingWords.has(key)) return pendingWords.get(key);
+
+    const job = (async () => {
+      let result;
+      try {
+        result = await translateGoogle(word, lang);
+      } catch {
+        result = { main: await myMemoryText(word, lang), alts: [] };
+      }
+      cache.set(key, result);
+      saveCache();
+      return result;
+    })();
+    pendingWords.set(key, job);
+    const done = () => pendingWords.delete(key);
+    job.then(done, done);
+    return job;
   }
 
   /* ------------------------------------------------------------------ */
@@ -770,7 +792,10 @@
       'https://translate.googleapis.com/translate_a/single?client=gtx' +
       `&sl=${SRC_LANG}&tl=${lang}&dt=t&q=${encodeURIComponent(text)}`;
     const res = await fetchTimeout(url, 10000);
-    if (!res.ok) throw new Error('google ' + res.status);
+    if (!res.ok) {
+      noteBackoff(res.status);
+      throw new Error('google ' + res.status);
+    }
     const data = await res.json();
     const out = (data[0] || []).map((part) => part[0]).join('').trim();
     if (!out) throw new Error('empty translation');
@@ -825,33 +850,43 @@
   }
 
   const ctxCache = new Map();
+  const pendingCtx = new Map();
+  const ctxKey = (ctx, lang) => lang + '\u0001' + ctx.before + '\u0001' + ctx.word + '\u0001' + ctx.after;
+  const cachedCtx = (ctx) => ctxCache.get(ctxKey(ctx, dstLang));
 
-  async function translateContext(ctx) {
+  function translateContext(ctx) {
     const lang = dstLang;
-    const key = lang + '\u0001' + ctx.before + '\u0001' + ctx.word + '\u0001' + ctx.after;
-    if (ctxCache.has(key)) return ctxCache.get(key);
+    const key = ctxKey(ctx, lang);
+    if (ctxCache.has(key)) return Promise.resolve(ctxCache.get(key));
+    if (pendingCtx.has(key)) return pendingCtx.get(key);
 
-    const canMark = !QUOTE_CHARS.test(ctx.before + ctx.after); // свои кавычки в тексте сбили бы разбор
+    const job = (async () => {
+      const canMark = !QUOTE_CHARS.test(ctx.before + ctx.after); // свои кавычки в тексте сбили бы разбор
 
-    // Длина не меняется, поэтому слово остаётся на своём месте и после смены регистра
-    const calm = decap(ctx.before + ctx.word + ctx.after, !ctx.lead);
-    const qBefore = calm.slice(0, ctx.before.length);
-    const qWord = calm.slice(ctx.before.length, ctx.before.length + ctx.word.length);
-    const qAfter = calm.slice(ctx.before.length + ctx.word.length);
+      // Длина не меняется, поэтому слово остаётся на своём месте и после смены регистра
+      const calm = decap(ctx.before + ctx.word + ctx.after, !ctx.lead);
+      const qBefore = calm.slice(0, ctx.before.length);
+      const qWord = calm.slice(ctx.before.length, ctx.before.length + ctx.word.length);
+      const qAfter = calm.slice(ctx.before.length + ctx.word.length);
 
-    let result;
-    try {
-      const out = await googleSentence(canMark ? qBefore + '"' + qWord + '"' + qAfter : calm, lang);
-      const parts = canMark ? splitMarked(out) : null;
-      if (parts) result = { text: parts.before + parts.piece + parts.after, parts };
-      else result = { text: canMark ? out.replace(MARKS, '') : out, parts: null };
-    } catch {
-      result = { text: await myMemoryText(calm, lang), parts: null };
-    }
+      let result;
+      try {
+        const out = await googleSentence(canMark ? qBefore + '"' + qWord + '"' + qAfter : calm, lang);
+        const parts = canMark ? splitMarked(out) : null;
+        if (parts) result = { text: parts.before + parts.piece + parts.after, parts };
+        else result = { text: canMark ? out.replace(MARKS, '') : out, parts: null };
+      } catch {
+        result = { text: await myMemoryText(calm, lang), parts: null };
+      }
 
-    ctxCache.set(key, result);
-    if (ctxCache.size > 200) ctxCache.delete(ctxCache.keys().next().value);
-    return result;
+      ctxCache.set(key, result);
+      if (ctxCache.size > 200) ctxCache.delete(ctxCache.keys().next().value);
+      return result;
+    })();
+    pendingCtx.set(key, job);
+    const done = () => pendingCtx.delete(key);
+    job.then(done, done);
+    return job;
   }
 
   /* ------------------------------------------------------------------ */
@@ -1007,14 +1042,19 @@
     span.classList.add('sel');
 
     const mine = ++token;
+    const word = span.textContent;
     const ctx = contextOf(span);
+
+    // Что уже переведено (в том числе предзагрузкой), показываем сразу, без «Перевожу…»
+    const dictHit = cachedWord(word);
+    const ctxHit = ctx ? cachedCtx(ctx) : null;
     const view = {
-      word: span.textContent,
+      word,
       ctx,
-      dict: null,
-      dictState: 'loading',
-      ctxResult: null,
-      ctxState: ctx ? 'loading' : 'none',
+      dict: dictHit || null,
+      dictState: dictHit ? 'done' : 'loading',
+      ctxResult: ctxHit || null,
+      ctxState: !ctx ? 'none' : ctxHit ? 'done' : 'loading',
     };
 
     // Окно обновляется по мере прихода ответов; ответы на предыдущие клики игнорируются
@@ -1025,12 +1065,14 @@
     };
     refresh();
 
-    translate(view.word).then(
-      (result) => { view.dict = result; view.dictState = 'done'; refresh(); },
-      () => { view.dictState = 'error'; refresh(); }
-    );
+    if (!dictHit) {
+      translate(word).then(
+        (result) => { view.dict = result; view.dictState = 'done'; refresh(); },
+        () => { view.dictState = 'error'; refresh(); }
+      );
+    }
 
-    if (ctx) {
+    if (ctx && !ctxHit) {
       translateContext(ctx).then(
         (result) => { view.ctxResult = result; view.ctxState = 'done'; refresh(); },
         () => { view.ctxState = 'error'; refresh(); }
@@ -1044,6 +1086,53 @@
     if (current) current.classList.remove('sel');
     current = null;
   }
+
+  /* ------------------------------------------------------------------ */
+  /* Предзагрузка перевода                                               */
+  /* ------------------------------------------------------------------ */
+
+  // Пока курсор лежит на слове, перевод уже запрашивается, и к клику он обычно готов.
+  // Нажатие мыши или пальца даёт такой же, но короче, задел.
+  const PREFETCH_KEY = 'reader-prefetch';
+  const HOVER_DELAY = 250;
+  const MAX_PREFETCH = 2;
+
+  let prefetchOn = storage.get(PREFETCH_KEY) !== '0';
+  let prefetchActive = 0;
+  let hoverTimer = 0;
+
+  function prefetch(span, onPress) {
+    if (!prefetchOn) return;
+    if (!onPress && (prefetchActive >= MAX_PREFETCH || Date.now() < prefetchPausedUntil)) return;
+
+    const word = span.textContent;
+    const ctx = contextOf(span);
+    const jobs = [];
+    if (!cachedWord(word)) jobs.push(translate(word));
+    if (ctx && !cachedCtx(ctx)) jobs.push(translateContext(ctx));
+    if (!jobs.length) return;
+
+    prefetchActive++;
+    Promise.allSettled(jobs).then(() => { prefetchActive--; });
+  }
+
+  els.body.addEventListener('pointerover', (e) => {
+    if (e.pointerType !== 'mouse') return;
+    clearTimeout(hoverTimer);
+    const word = e.target.closest('.w');
+    if (word) hoverTimer = setTimeout(() => prefetch(word), HOVER_DELAY);
+  });
+
+  els.body.addEventListener('pointerout', (e) => {
+    if (e.target.closest('.w')) clearTimeout(hoverTimer);
+  });
+
+  els.body.addEventListener('pointerdown', (e) => {
+    const word = e.target.closest('.w');
+    if (!word) return;
+    clearTimeout(hoverTimer);
+    prefetch(word, true);
+  });
 
   /* ------------------------------------------------------------------ */
   /* События                                                             */
@@ -1179,6 +1268,13 @@
   }
 
   els.settingsBtn.addEventListener('click', () => toggleSettings());
+
+  els.prefetchToggle.checked = prefetchOn;
+  els.prefetchToggle.addEventListener('change', () => {
+    prefetchOn = els.prefetchToggle.checked;
+    storage.set(PREFETCH_KEY, prefetchOn ? '1' : '0');
+    if (!prefetchOn) clearTimeout(hoverTimer);
+  });
 
   /* ------------------------------------------------------------------ */
   /* Старт                                                               */

@@ -5,6 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Читалка с переводом</title>
   <meta name="description" content="Вставь ссылку на английскую статью и нажимай на слова, чтобы увидеть перевод.">
+  <link rel="preconnect" href="https://translate.googleapis.com" crossorigin>
+  <link rel="dns-prefetch" href="https://translate.googleapis.com">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -19,6 +21,10 @@
       <div id="settings" class="settings" hidden>
         <label for="lang-select">Язык перевода</label>
         <select id="lang-select"></select>
+        <label class="check">
+          <input type="checkbox" id="prefetch-toggle">
+          <span>Заранее переводить при наведении. Перевод появляется быстрее, но слова и предложения под курсором уходят в сервис перевода ещё до клика.</span>
+        </label>
       </div>
 
       <div class="tabs" role="tablist" aria-label="Источник текста">
