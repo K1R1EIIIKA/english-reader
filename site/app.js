@@ -638,15 +638,15 @@
     return { main, alts };
   }
 
-  async function translateMyMemory(word) {
+  async function myMemoryText(text) {
     const url =
-      `https://api.mymemory.translated.net/get?q=${encodeURIComponent(word)}&langpair=${SRC_LANG}|${DST_LANG}`;
+      `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=${SRC_LANG}|${DST_LANG}`;
     const res = await fetchTimeout(url, 8000);
     if (!res.ok) throw new Error('mymemory ' + res.status);
     const data = await res.json();
-    const main = data && data.responseData && data.responseData.translatedText;
-    if (!main || /MYMEMORY WARNING/i.test(main)) throw new Error('empty translation');
-    return { main: main.trim(), alts: [] };
+    const out = data && data.responseData && data.responseData.translatedText;
+    if (!out || /MYMEMORY WARNING/i.test(out)) throw new Error('empty translation');
+    return out.trim();
   }
 
   async function translate(word) {
@@ -655,10 +655,137 @@
     try {
       result = await translateGoogle(word);
     } catch {
-      result = await translateMyMemory(word);
+      result = { main: await myMemoryText(word), alts: [] };
     }
     cache.set(word, result);
     saveCache();
+    return result;
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Перевод в контексте предложения                                     */
+  /* ------------------------------------------------------------------ */
+
+  const MAX_SENTENCE = 280;
+  const BLOCK_SEL = 'p, li, h1, h2, h3, h4, h5, h6, blockquote, figcaption, td, th, dt, dd, pre';
+  const QUOTE_CHARS = /["“”«»„]/;
+
+  // [начало, конец) предложения, в которое попадает позиция offset
+  function sentenceBounds(text, offset) {
+    if (typeof Intl !== 'undefined' && Intl.Segmenter) {
+      for (const s of new Intl.Segmenter('en', { granularity: 'sentence' }).segment(text)) {
+        if (offset < s.index + s.segment.length) return [s.index, s.index + s.segment.length];
+      }
+    } else {
+      const re = /[^.!?…]+(?:[.!?…]+["”’')\]]*|$)\s*/g;
+      for (const m of text.matchAll(re)) {
+        if (offset < m.index + m[0].length) return [m.index, m.index + m[0].length];
+      }
+    }
+    return [0, text.length];
+  }
+
+  // Предложение вокруг нажатого слова: {before, word, after, lead, tail} или null
+  function contextOf(span) {
+    const word = span.textContent;
+    const block = span.closest(BLOCK_SEL) || els.body;
+    const full = block.textContent;
+
+    let offset;
+    try {
+      const range = document.createRange();
+      range.selectNodeContents(block);
+      range.setEnd(span, 0);
+      offset = range.toString().length;
+    } catch {
+      return null;
+    }
+    if (full.slice(offset, offset + word.length) !== word) return null;
+
+    // Большие блоки целиком разбирать не нужно: хватит окна вокруг слова
+    const from = Math.max(0, offset - 1500);
+    const text = full.slice(from, offset + word.length + 1500);
+    const at = offset - from;
+    const wordEnd = at + word.length;
+
+    let [s, e] = sentenceBounds(text, at);
+    while (s < e && /\s/.test(text[s])) s++;
+    while (e > s && /\s/.test(text[e - 1])) e--;
+
+    let lead = '';
+    let tail = '';
+    if (e - s > MAX_SENTENCE) {
+      // Слишком длинное предложение: берём кусок вокруг слова, по границам слов
+      let a = Math.max(s, at - 140);
+      let b = Math.min(e, wordEnd + 140);
+      if (a > s) {
+        const sp = text.indexOf(' ', a);
+        if (sp !== -1 && sp < at) a = sp + 1;
+      }
+      if (b < e) {
+        const sp = text.lastIndexOf(' ', b);
+        if (sp > wordEnd) b = sp;
+      }
+      if (a > s) lead = '…';
+      if (b < e) tail = '…';
+      s = a;
+      e = b;
+    }
+
+    const before = text.slice(s, at).replace(/\s+/g, ' ');
+    const after = text.slice(wordEnd, e).replace(/\s+/g, ' ');
+    if (!(before + after).trim()) return null; // слово стоит одно, контекста нет
+    return { before, word, after, lead, tail };
+  }
+
+  async function googleSentence(text) {
+    const url =
+      'https://translate.googleapis.com/translate_a/single?client=gtx' +
+      `&sl=${SRC_LANG}&tl=${DST_LANG}&dt=t&q=${encodeURIComponent(text)}`;
+    const res = await fetchTimeout(url, 10000);
+    if (!res.ok) throw new Error('google ' + res.status);
+    const data = await res.json();
+    const out = (data[0] || []).map((part) => part[0]).join('').trim();
+    if (!out) throw new Error('empty translation');
+    return out;
+  }
+
+  // В предложение перед отправкой слово берётся в кавычки, и переводчик, как правило, переносит
+  // кавычки в русский текст вокруг перевода именно этого слова. Если кавычек не ровно две,
+  // результату не доверяем и просто показываем перевод предложения без выделения.
+  function splitMarked(out) {
+    const marks = out.match(/[«»“”"„]/g) || [];
+    if (marks.length !== 2) return null;
+    const m = out.match(/[«“"„]([^«»“”"„]{1,80})[»”"“]/);
+    if (!m || !m[1].trim()) return null;
+    return {
+      before: out.slice(0, m.index),
+      piece: m[1].trim(),
+      after: out.slice(m.index + m[0].length),
+    };
+  }
+
+  const ctxCache = new Map();
+
+  async function translateContext(ctx) {
+    const key = ctx.before + '\u0001' + ctx.word + '\u0001' + ctx.after;
+    if (ctxCache.has(key)) return ctxCache.get(key);
+
+    const plain = ctx.before + ctx.word + ctx.after;
+    const canMark = !QUOTE_CHARS.test(ctx.before + ctx.after); // свои кавычки в тексте сбили бы разбор
+
+    let result;
+    try {
+      const out = await googleSentence(canMark ? ctx.before + '"' + ctx.word + '"' + ctx.after : plain);
+      const parts = canMark ? splitMarked(out) : null;
+      if (parts) result = { text: parts.before + parts.piece + parts.after, parts };
+      else result = { text: canMark ? out.replace(/[«»“”"„]/g, '') : out, parts: null };
+    } catch {
+      result = { text: await myMemoryText(plain), parts: null };
+    }
+
+    ctxCache.set(key, result);
+    if (ctxCache.size > 200) ctxCache.delete(ctxCache.keys().next().value);
     return result;
   }
 
@@ -677,7 +804,15 @@
     window.speechSynthesis.speak(utter);
   }
 
-  function renderPopup(word, state, result) {
+  // Перевод из предложения приводим к виду словарной статьи: «Лиса» -> «лиса», если слово не имя собственное
+  function tidyPiece(piece, ctx) {
+    if (piece === piece.toUpperCase()) return piece; // аббревиатуры
+    const properNoun = ctx && /^\p{Lu}/u.test(ctx.word) && ctx.before.trim() !== '';
+    return properNoun ? piece : piece.charAt(0).toLowerCase() + piece.slice(1);
+  }
+
+  function renderPopup(view) {
+    const { word, ctx, dict, dictState, ctxResult, ctxState } = view;
     els.popup.textContent = '';
 
     const head = document.createElement('div');
@@ -700,26 +835,72 @@
     main.className = 'p-main';
     els.popup.append(head, main);
 
-    if (state === 'loading') {
+    const piece = ctxResult && ctxResult.parts ? tidyPiece(ctxResult.parts.piece, ctx) : null;
+
+    if (piece) {
+      main.textContent = piece;
+      if (dict && dict.main && dict.main.toLowerCase() !== piece.toLowerCase()) {
+        const row = document.createElement('div');
+        row.className = 'p-dict';
+        row.textContent = 'В словаре: ' + dict.main;
+        els.popup.append(row);
+      }
+    } else if (dict) {
+      main.textContent = dict.main;
+    } else if (dictState === 'loading' || ctxState === 'loading') {
       main.classList.add('dim');
       main.textContent = 'Перевожу…';
-    } else if (state === 'error') {
+    } else {
       main.classList.add('err');
       main.textContent = 'Не удалось перевести. Проверь соединение и попробуй ещё раз.';
-    } else {
-      main.textContent = result.main;
-      if (result.alts && result.alts.length) {
-        const list = document.createElement('div');
-        list.className = 'p-alts';
-        for (const alt of result.alts) {
-          const row = document.createElement('div');
-          const pos = document.createElement('b');
-          pos.textContent = alt.pos;
-          row.append(pos, alt.words.join(', '));
-          list.append(row);
-        }
-        els.popup.append(list);
+    }
+
+    if (dict && dict.alts && dict.alts.length) {
+      const list = document.createElement('div');
+      list.className = 'p-alts';
+      for (const alt of dict.alts) {
+        const row = document.createElement('div');
+        const pos = document.createElement('b');
+        pos.textContent = alt.pos;
+        row.append(pos, alt.words.join(', '));
+        list.append(row);
       }
+      els.popup.append(list);
+    }
+
+    if (ctx) {
+      const box = document.createElement('div');
+      box.className = 'p-ctx';
+
+      const cap = document.createElement('div');
+      cap.className = 'p-label';
+      cap.textContent = 'В предложении';
+
+      const orig = document.createElement('div');
+      orig.className = 'p-orig';
+      const strong = document.createElement('b');
+      strong.textContent = ctx.word;
+      orig.append(ctx.lead + ctx.before, strong, ctx.after + ctx.tail);
+
+      const tr = document.createElement('div');
+      tr.className = 'p-tr';
+      if (ctxState === 'loading') {
+        tr.classList.add('dim');
+        tr.textContent = 'Перевожу предложение…';
+      } else if (ctxState === 'error' || !ctxResult) {
+        tr.classList.add('dim');
+        tr.textContent = 'Не удалось перевести предложение.';
+      } else if (ctxResult.parts) {
+        const mark = document.createElement('mark');
+        mark.className = 'hl';
+        mark.textContent = ctxResult.parts.piece;
+        tr.append(ctxResult.parts.before, mark, ctxResult.parts.after);
+      } else {
+        tr.textContent = ctxResult.text;
+      }
+
+      box.append(cap, orig, tr);
+      els.popup.append(box);
     }
   }
 
@@ -742,26 +923,41 @@
     popup.style.top = top + window.scrollY + 'px';
   }
 
-  async function openPopup(span) {
+  function openPopup(span) {
     if (current) current.classList.remove('sel');
     current = span;
     span.classList.add('sel');
 
     const mine = ++token;
-    const word = span.textContent;
+    const ctx = contextOf(span);
+    const view = {
+      word: span.textContent,
+      ctx,
+      dict: null,
+      dictState: 'loading',
+      ctxResult: null,
+      ctxState: ctx ? 'loading' : 'none',
+    };
 
-    renderPopup(word, 'loading');
-    place(span);
+    // Окно обновляется по мере прихода ответов; ответы на предыдущие клики игнорируются
+    const refresh = () => {
+      if (mine !== token) return;
+      renderPopup(view);
+      place(span);
+    };
+    refresh();
 
-    try {
-      const result = await translate(word);
-      if (mine !== token) return;
-      renderPopup(word, 'done', result);
-    } catch {
-      if (mine !== token) return;
-      renderPopup(word, 'error');
+    translate(view.word).then(
+      (result) => { view.dict = result; view.dictState = 'done'; refresh(); },
+      () => { view.dictState = 'error'; refresh(); }
+    );
+
+    if (ctx) {
+      translateContext(ctx).then(
+        (result) => { view.ctxResult = result; view.ctxState = 'done'; refresh(); },
+        () => { view.ctxState = 'error'; refresh(); }
+      );
     }
-    place(span);
   }
 
   function closePopup() {
