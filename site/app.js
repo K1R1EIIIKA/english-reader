@@ -26,7 +26,6 @@
     meta: $('#article-meta'),
     body: $('#article-body'),
     popup: $('#popup'),
-    badge: $('#badge'),
     settingsBtn: $('#settings-btn'),
     settings: $('#settings'),
     langSelect: $('#lang-select'),
@@ -1152,10 +1151,7 @@
   /* Настройки                                                           */
   /* ------------------------------------------------------------------ */
 
-  const langShort = (code) => (code === 'zh-CN' ? 'ZH' : code.toUpperCase());
-
   function applyLang() {
-    els.badge.textContent = SRC_LANG.toUpperCase() + ' → ' + langShort(dstLang);
     els.langSelect.value = dstLang;
   }
 

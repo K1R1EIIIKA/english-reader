@@ -74,16 +74,6 @@ body {
   letter-spacing: -0.01em;
 }
 
-.badge {
-  font-size: 0.72rem;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  color: var(--accent);
-  background: var(--accent-soft);
-  padding: 3px 8px;
-  border-radius: 999px;
-}
-
 .icon-btn {
   margin-left: auto;
   width: 36px;
