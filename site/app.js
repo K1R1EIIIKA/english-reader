@@ -765,23 +765,60 @@
     };
   }
 
+  // Подряд идущие слова из заглавных букв (три и больше) переводчик понимает хуже: «TWENTY-THREE
+  // HUNDRED YEARS AGO» превращается в «ДВАДЦАТЬ ТРИСТА ЛЕТА НАЗАД». Такие слова приводим к обычному
+  // регистру. Одиночные аббревиатуры и пары вроде «US FDA» не трогаем. Длина строки не меняется.
+  function decap(text, sentenceStart) {
+    const tokens = [...text.matchAll(/[A-Za-z][A-Za-z'’\-]*/g)].map((m) => ({
+      i: m.index,
+      s: m[0],
+      caps: m[0].length > 1 && m[0] === m[0].toUpperCase(),
+    }));
+
+    let out = text;
+    let k = 0;
+    while (k < tokens.length) {
+      if (!tokens[k].caps) { k++; continue; }
+      let j = k;
+      while (
+        j + 1 < tokens.length && tokens[j + 1].caps &&
+        /^[\s,]*$/.test(text.slice(tokens[j].i + tokens[j].s.length, tokens[j + 1].i))
+      ) j++;
+
+      if (j - k + 1 >= 3) {
+        for (let t = k; t <= j; t++) {
+          const { i, s } = tokens[t];
+          out = out.slice(0, i) + s.toLowerCase() + out.slice(i + s.length);
+        }
+        if (sentenceStart && tokens[k].i === 0) out = out.charAt(0).toUpperCase() + out.slice(1);
+      }
+      k = j + 1;
+    }
+    return out;
+  }
+
   const ctxCache = new Map();
 
   async function translateContext(ctx) {
     const key = ctx.before + '\u0001' + ctx.word + '\u0001' + ctx.after;
     if (ctxCache.has(key)) return ctxCache.get(key);
 
-    const plain = ctx.before + ctx.word + ctx.after;
     const canMark = !QUOTE_CHARS.test(ctx.before + ctx.after); // свои кавычки в тексте сбили бы разбор
+
+    // Длина не меняется, поэтому слово остаётся на своём месте и после смены регистра
+    const calm = decap(ctx.before + ctx.word + ctx.after, !ctx.lead);
+    const qBefore = calm.slice(0, ctx.before.length);
+    const qWord = calm.slice(ctx.before.length, ctx.before.length + ctx.word.length);
+    const qAfter = calm.slice(ctx.before.length + ctx.word.length);
 
     let result;
     try {
-      const out = await googleSentence(canMark ? ctx.before + '"' + ctx.word + '"' + ctx.after : plain);
+      const out = await googleSentence(canMark ? qBefore + '"' + qWord + '"' + qAfter : calm);
       const parts = canMark ? splitMarked(out) : null;
       if (parts) result = { text: parts.before + parts.piece + parts.after, parts };
       else result = { text: canMark ? out.replace(/[«»“”"„]/g, '') : out, parts: null };
     } catch {
-      result = { text: await myMemoryText(plain), parts: null };
+      result = { text: await myMemoryText(calm), parts: null };
     }
 
     ctxCache.set(key, result);
@@ -847,6 +884,13 @@
       }
     } else if (dict) {
       main.textContent = dict.main;
+      if (ctx && ctxState === 'done') {
+        // Слово не удалось отделить в переводе предложения: показанное значение может не подходить
+        const note = document.createElement('div');
+        note.className = 'p-note';
+        note.textContent = 'Словарный перевод. В предложении слово может быть частью оборота, смотри перевод ниже.';
+        els.popup.append(note);
+      }
     } else if (dictState === 'loading' || ctxState === 'loading') {
       main.classList.add('dim');
       main.textContent = 'Перевожу…';
