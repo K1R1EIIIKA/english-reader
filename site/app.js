@@ -2,7 +2,6 @@
   'use strict';
 
   const SRC_LANG = 'en';
-  const DST_LANG = 'ru';
 
   const $ = (sel) => document.querySelector(sel);
   const els = {
@@ -27,6 +26,10 @@
     meta: $('#article-meta'),
     body: $('#article-body'),
     popup: $('#popup'),
+    badge: $('#badge'),
+    settingsBtn: $('#settings-btn'),
+    settings: $('#settings'),
+    langSelect: $('#lang-select'),
   };
 
   /* ------------------------------------------------------------------ */
@@ -92,6 +95,28 @@
       try { localStorage.removeItem(key); } catch { /* нечего удалять */ }
     },
   };
+
+  /* ------------------------------------------------------------------ */
+  /* Язык перевода                                                       */
+  /* ------------------------------------------------------------------ */
+
+  // [код для переводчика, название в списке]
+  const LANGS = [
+    ['ru', 'Русский'], ['uk', 'Украинский'], ['be', 'Белорусский'], ['kk', 'Казахский'],
+    ['de', 'Немецкий'], ['fr', 'Французский'], ['es', 'Испанский'], ['it', 'Итальянский'],
+    ['pt', 'Португальский'], ['pl', 'Польский'], ['cs', 'Чешский'], ['tr', 'Турецкий'],
+    ['zh-CN', 'Китайский (упрощённый)'], ['ja', 'Японский'], ['ko', 'Корейский'], ['ar', 'Арабский'],
+  ];
+  const LANG_KEY = 'reader-lang';
+
+  let dstLang = 'ru';
+  {
+    const saved = storage.get(LANG_KEY);
+    if (LANGS.some(([code]) => code === saved)) dstLang = saved;
+  }
+
+  // В этих языках существительные пишутся с заглавной, поэтому регистр перевода не меняем
+  const KEEP_CASE = new Set(['de']);
 
   /* ------------------------------------------------------------------ */
   /* Загрузка статьи по ссылке                                           */
@@ -608,7 +633,7 @@
   const CACHE_KEY = 'reader-translations-v1';
   const cache = new Map();
   try {
-    for (const [k, v] of JSON.parse(storage.get(CACHE_KEY) || '[]')) cache.set(k, v);
+    for (const [k, v] of JSON.parse(storage.get(CACHE_KEY) || '[]')) cache.set(k.includes(':') ? k : 'ru:' + k, v);
   } catch { /* кэш необязателен */ }
 
   function saveCache() {
@@ -622,10 +647,10 @@
     particle: 'част.', numeral: 'числ.', abbreviation: 'сокр.', prefix: 'приставка',
   };
 
-  async function translateGoogle(word) {
+  async function translateGoogle(word, lang) {
     const url =
       'https://translate.googleapis.com/translate_a/single?client=gtx' +
-      `&sl=${SRC_LANG}&tl=${DST_LANG}&dt=t&dt=bd&q=${encodeURIComponent(word)}`;
+      `&sl=${SRC_LANG}&tl=${lang}&dt=t&dt=bd&q=${encodeURIComponent(word)}`;
     const res = await fetchTimeout(url, 8000);
     if (!res.ok) throw new Error('google ' + res.status);
     const data = await res.json();
@@ -638,9 +663,9 @@
     return { main, alts };
   }
 
-  async function myMemoryText(text) {
+  async function myMemoryText(text, lang) {
     const url =
-      `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=${SRC_LANG}|${DST_LANG}`;
+      `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=${SRC_LANG}|${lang}`;
     const res = await fetchTimeout(url, 8000);
     if (!res.ok) throw new Error('mymemory ' + res.status);
     const data = await res.json();
@@ -650,14 +675,16 @@
   }
 
   async function translate(word) {
-    if (cache.has(word)) return cache.get(word);
+    const lang = dstLang;
+    const key = lang + ':' + word;
+    if (cache.has(key)) return cache.get(key);
     let result;
     try {
-      result = await translateGoogle(word);
+      result = await translateGoogle(word, lang);
     } catch {
-      result = { main: await myMemoryText(word), alts: [] };
+      result = { main: await myMemoryText(word, lang), alts: [] };
     }
-    cache.set(word, result);
+    cache.set(key, result);
     saveCache();
     return result;
   }
@@ -669,6 +696,7 @@
   const MAX_SENTENCE = 280;
   const BLOCK_SEL = 'p, li, h1, h2, h3, h4, h5, h6, blockquote, figcaption, td, th, dt, dd, pre';
   const QUOTE_CHARS = /["“”«»„]/;
+  const MARKS = /[«»“”"„「」『』‹›]/g; // кавычки в переводе, в том числе японские и угловые
 
   // [начало, конец) предложения, в которое попадает позиция offset
   function sentenceBounds(text, offset) {
@@ -738,10 +766,10 @@
     return { before, word, after, lead, tail };
   }
 
-  async function googleSentence(text) {
+  async function googleSentence(text, lang) {
     const url =
       'https://translate.googleapis.com/translate_a/single?client=gtx' +
-      `&sl=${SRC_LANG}&tl=${DST_LANG}&dt=t&q=${encodeURIComponent(text)}`;
+      `&sl=${SRC_LANG}&tl=${lang}&dt=t&q=${encodeURIComponent(text)}`;
     const res = await fetchTimeout(url, 10000);
     if (!res.ok) throw new Error('google ' + res.status);
     const data = await res.json();
@@ -754,9 +782,9 @@
   // кавычки в русский текст вокруг перевода именно этого слова. Если кавычек не ровно две,
   // результату не доверяем и просто показываем перевод предложения без выделения.
   function splitMarked(out) {
-    const marks = out.match(/[«»“”"„]/g) || [];
+    const marks = out.match(MARKS) || [];
     if (marks.length !== 2) return null;
-    const m = out.match(/[«“"„]([^«»“”"„]{1,80})[»”"“]/);
+    const m = out.match(/[«“"„「『‹]([^«»“”"„「」『』‹›]{1,80})[»”"“」』›]/);
     if (!m || !m[1].trim()) return null;
     return {
       before: out.slice(0, m.index),
@@ -800,7 +828,8 @@
   const ctxCache = new Map();
 
   async function translateContext(ctx) {
-    const key = ctx.before + '\u0001' + ctx.word + '\u0001' + ctx.after;
+    const lang = dstLang;
+    const key = lang + '\u0001' + ctx.before + '\u0001' + ctx.word + '\u0001' + ctx.after;
     if (ctxCache.has(key)) return ctxCache.get(key);
 
     const canMark = !QUOTE_CHARS.test(ctx.before + ctx.after); // свои кавычки в тексте сбили бы разбор
@@ -813,12 +842,12 @@
 
     let result;
     try {
-      const out = await googleSentence(canMark ? qBefore + '"' + qWord + '"' + qAfter : calm);
+      const out = await googleSentence(canMark ? qBefore + '"' + qWord + '"' + qAfter : calm, lang);
       const parts = canMark ? splitMarked(out) : null;
       if (parts) result = { text: parts.before + parts.piece + parts.after, parts };
-      else result = { text: canMark ? out.replace(/[«»“”"„]/g, '') : out, parts: null };
+      else result = { text: canMark ? out.replace(MARKS, '') : out, parts: null };
     } catch {
-      result = { text: await myMemoryText(calm), parts: null };
+      result = { text: await myMemoryText(calm, lang), parts: null };
     }
 
     ctxCache.set(key, result);
@@ -845,7 +874,8 @@
   function tidyPiece(piece, ctx) {
     if (piece === piece.toUpperCase()) return piece; // аббревиатуры
     const properNoun = ctx && /^\p{Lu}/u.test(ctx.word) && ctx.before.trim() !== '';
-    return properNoun ? piece : piece.charAt(0).toLowerCase() + piece.slice(1);
+    if (properNoun || KEEP_CASE.has(dstLang)) return piece;
+    return piece.charAt(0).toLowerCase() + piece.slice(1);
   }
 
   function renderPopup(view) {
@@ -870,6 +900,8 @@
 
     const main = document.createElement('div');
     main.className = 'p-main';
+    main.lang = dstLang;
+    main.dir = 'auto';
     els.popup.append(head, main);
 
     const piece = ctxResult && ctxResult.parts ? tidyPiece(ctxResult.parts.piece, ctx) : null;
@@ -902,6 +934,7 @@
     if (dict && dict.alts && dict.alts.length) {
       const list = document.createElement('div');
       list.className = 'p-alts';
+      list.lang = dstLang;
       for (const alt of dict.alts) {
         const row = document.createElement('div');
         const pos = document.createElement('b');
@@ -928,6 +961,8 @@
 
       const tr = document.createElement('div');
       tr.className = 'p-tr';
+      tr.lang = dstLang;
+      tr.dir = 'auto';
       if (ctxState === 'loading') {
         tr.classList.add('dim');
         tr.textContent = 'Перевожу предложение…';
@@ -1028,7 +1063,10 @@
   });
 
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') closePopup();
+    if (e.key === 'Escape') {
+      closePopup();
+      toggleSettings(false);
+    }
   });
 
   window.addEventListener('resize', () => {
@@ -1109,6 +1147,42 @@
   });
 
   els.docsClear.addEventListener('click', clearDocs);
+
+  /* ------------------------------------------------------------------ */
+  /* Настройки                                                           */
+  /* ------------------------------------------------------------------ */
+
+  const langShort = (code) => (code === 'zh-CN' ? 'ZH' : code.toUpperCase());
+
+  function applyLang() {
+    els.badge.textContent = SRC_LANG.toUpperCase() + ' → ' + langShort(dstLang);
+    els.langSelect.value = dstLang;
+  }
+
+  for (const [code, name] of LANGS) {
+    const option = document.createElement('option');
+    option.value = code;
+    option.textContent = name;
+    els.langSelect.append(option);
+  }
+  applyLang();
+
+  els.langSelect.addEventListener('change', () => {
+    const code = els.langSelect.value;
+    if (!LANGS.some(([c]) => c === code)) return;
+    dstLang = code;
+    storage.set(LANG_KEY, code);
+    applyLang();
+    closePopup(); // открытый перевод относился к прежнему языку
+  });
+
+  function toggleSettings(show) {
+    const open = show === undefined ? els.settings.hidden : show;
+    els.settings.hidden = !open;
+    els.settingsBtn.setAttribute('aria-expanded', String(open));
+  }
+
+  els.settingsBtn.addEventListener('click', () => toggleSettings());
 
   /* ------------------------------------------------------------------ */
   /* Старт                                                               */

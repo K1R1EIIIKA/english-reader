@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Читалка с переводом</title>
-  <meta name="description" content="Вставь ссылку на английскую статью и нажимай на слова, чтобы увидеть перевод на русский.">
+  <meta name="description" content="Вставь ссылку на английскую статью и нажимай на слова, чтобы увидеть перевод.">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -12,7 +12,14 @@
     <div class="wrap">
       <div class="brand">
         <h1>Читалка</h1>
-        <span class="badge">EN → RU</span>
+        <span class="badge" id="badge">EN → RU</span>
+        <button type="button" id="settings-btn" class="icon-btn" aria-label="Настройки"
+                aria-expanded="false" aria-controls="settings">⚙</button>
+      </div>
+
+      <div id="settings" class="settings" hidden>
+        <label for="lang-select">Язык перевода</label>
+        <select id="lang-select"></select>
       </div>
 
       <div class="tabs" role="tablist" aria-label="Источник текста">
@@ -57,7 +64,7 @@
       <ol>
         <li>Вставь ссылку на статью на английском.</li>
         <li>Нажми на любое слово в тексте.</li>
-        <li>Над словом появится перевод на русский.</li>
+        <li>Рядом со словом появится перевод на выбранный язык (по умолчанию русский, меняется в настройках ⚙).</li>
       </ol>
       <p class="muted">Можно открыть и свой материал: вставить текст или загрузить файл PDF, DOCX, TXT, MD. Открытые статьи и тексты запоминаются в этом браузере.</p>
       <p class="muted">Если сайт не отдаёт статью, переключись на «Свой текст» и вставь её вручную.</p>

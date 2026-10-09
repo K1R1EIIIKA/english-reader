@@ -84,6 +84,44 @@ body {
   border-radius: 999px;
 }
 
+.icon-btn {
+  margin-left: auto;
+  width: 36px;
+  height: 36px;
+  font-size: 1.15rem;
+  line-height: 1;
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.icon-btn:hover,
+.icon-btn[aria-expanded="true"] { color: var(--text); background: var(--bg); }
+
+.settings {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: -4px 0 14px;
+  padding: 10px 13px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--bg);
+  font-size: 0.92rem;
+}
+
+.settings select {
+  font: inherit;
+  padding: 6px 10px;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
 .tabs {
   display: inline-flex;
   gap: 4px;
